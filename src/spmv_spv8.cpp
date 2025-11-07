@@ -14,6 +14,7 @@
 #include "mkl.h"
 #include "mkl_spblas.h"
 #include "utility.hpp"
+#include <time.h>
 using namespace std;
 using namespace chrono;
 
@@ -217,7 +218,6 @@ always_inline void avx512_spvv8_kernel_tr(const int *rows, int *rowb, int *rowe,
 
 void spmv_tr_spvv8_kernel(tr_matrix &tr, int threads) {
   int size = tr.tasks.size();
-#pragma omp parallel for num_threads(threads) schedule(dynamic)
   for (int tid = 0; tid < size; tid++) {
     vector<int> &task = tr.tasks[tid];
     csr_matrix &mat = tr.mat;
@@ -240,9 +240,8 @@ void spmv_tr_spvv8_kernel(tr_matrix &tr, int threads) {
   }
 }
 
-int main(int argc, char *argv[]) {
+int main() {
   csr_matrix mat;
-  int loop_count, thread_count;
 
   if (access("info.txt", F_OK) != -1) {
     FILE *info = fopen("info.txt", "r");
@@ -255,35 +254,47 @@ int main(int argc, char *argv[]) {
     return -1;
   }
 
-  if (argc > 3) {
-    sscanf(argv[1], "%d", &loop_count);
-    sscanf(argv[3], "%d", &thread_count);
-  } else {
-    fprintf(stderr, "invalid parameter\n");
-    return -2;
-  }
-
   input_matrix(mat);
 
   bool banded = is_banded(mat);
-  int panel_count = max(thread_count * 4, mat.rows / 2000);
+  int panel_count = max(4, mat.rows / 2000);
   if (banded) {
-    panel_count = max(thread_count * 4, mat.rows / 10000);
+    panel_count = max(4, mat.rows / 10000);
   }
   tr_matrix tr = process(mat, panel_count);
 
   // Warm-up
   for (int i = 0; i < 300; i++) {
-    spmv_tr_spvv8_kernel(tr, thread_count);
+    spmv_tr_spvv8_kernel(tr, 1);
   }
 
-  auto begin = high_resolution_clock::now();
-  for (int i = 0; i < loop_count; i++) {
-    spmv_tr_spvv8_kernel(tr, thread_count);
+  struct timespec t1, t2;
+  double times[100];
+  for (int i = 0; i < 100; i++) {
+    clock_gettime(CLOCK_MONOTONIC, &t1);
+    spmv_tr_spvv8_kernel(tr, 1);
+    clock_gettime(CLOCK_MONOTONIC, &t2);
+    times[i] = (t2.tv_sec - t1.tv_sec) * 1e9 + (t2.tv_nsec - t1.tv_nsec);
   }
-  auto end = high_resolution_clock::now();
-  auto duration = duration_cast<microseconds>(end - begin);
-  printf("%lf,", double(duration.count()) / 1000 / loop_count);
+  for (int i=0; i<99; i++) {
+      for (int j=i+1; j<100; j++) {
+          if (times[j] < times[i]) {
+              double temp = times[i];
+              times[i] = times[j];
+              times[j] = temp;
+          }
+      }
+  }
+  printf("Time: %.2f ns\n", times[50]);
+
+  // Reset y array and perform one final computation for correctness check
+  for (int i = 0; i < tr.mat.rows; i++) {
+    tr.mat.y[i] = 0.0;
+  }
+  spmv_tr_spvv8_kernel(tr, 1);
+
+  bool correct = check_answer(tr.mat);
+  printf("Correct: %s\n", correct ? "true" : "false");
 
   destroy_matrix(mat);
   return 0;

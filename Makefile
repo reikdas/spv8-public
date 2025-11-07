@@ -6,9 +6,9 @@ CXX = g++
 # CXXFLAGS += -g
 # CXXFLAGS += -fsanitize=address # Check invalid memory access
 # - General
-CXXFLAGS += -O2 # Should be disabled when debug
+CXXFLAGS += -O3 # Should be disabled when debug
 CXXFLAGS += -std=c++17 -Wall -Wextra
-CXXFLAGS += -march=skylake-avx512 -fopenmp
+CXXFLAGS += -march=native -fopenmp
 #CXXFLAGS += -static
 
 # Intel oneMKL setup (will try to infer MKLROOT if not set)

@@ -7,8 +7,9 @@ import scipy
 import scipy.io
 import scipy.sparse
 
-DATA_PATH = './data'
-
+FILE_PATH = os.path.dirname(os.path.abspath(__file__))
+MATRIX_DIR = os.path.abspath(os.path.join(FILE_PATH, '..', '..', 'csr_files'))
+DATA_PATH = os.path.abspath(os.path.join(FILE_PATH, "..", "data"))
 
 def output(output_path, M):
   np.random.seed(1)
@@ -66,7 +67,7 @@ def output(output_path, M):
 def main():
   matrices = []
   print('Loading matrices')
-  for pathname in glob.glob('matrices/*.mtx'):
+  for pathname in glob.glob(os.path.join(MATRIX_DIR, '*.mtx')):
     name = os.path.splitext(os.path.basename(pathname))[0]
     print('Load %s' % name)
     matrix = scipy.io.mmread(pathname)
@@ -75,6 +76,8 @@ def main():
     matrices.append((nonzeros, name, matrix))
 
   matrices.sort(key=lambda x: x[0])
+
+  os.makedirs(DATA_PATH, exist_ok=True)
 
   print('Write list.txt')
   with open(DATA_PATH + '/list.txt', 'w') as f:
