@@ -265,12 +265,18 @@ int main() {
 
   // Warm-up
   for (int i = 0; i < 300; i++) {
+    for (int i = 0; i < tr.mat.rows; i++) {
+      tr.mat.y[i] = 0.0;
+    }
     spmv_tr_spvv8_kernel(tr, 1);
   }
 
   struct timespec t1, t2;
   double times[100];
   for (int i = 0; i < 100; i++) {
+    for (int i = 0; i < tr.mat.rows; i++) {
+      tr.mat.y[i] = 0.0;
+    }
     clock_gettime(CLOCK_MONOTONIC, &t1);
     spmv_tr_spvv8_kernel(tr, 1);
     clock_gettime(CLOCK_MONOTONIC, &t2);
@@ -299,4 +305,3 @@ int main() {
   destroy_matrix(mat);
   return 0;
 }
-
