@@ -6,58 +6,29 @@
 #include <string.h>
 #include <math.h>
 #include "utility.h"
-#include "utility.h"
 
 // Helper to allocate 64-byte aligned memory (aligned_alloc requires
 // the size to be a multiple of alignment)
-static void *aligned_malloc64(size_t bytes) {
-  const size_t align = 64;
-  size_t s = bytes;
-  if (s % align) s += align - (s % align);
-  void *p = aligned_alloc(align, s);
-  if (!p) {
-    fprintf(stderr, "aligned_alloc failed for %zu bytes\n", bytes);
-    exit(1);
-  }
-  return p;
-}
+// Note: replaced aligned allocations with plain malloc calls below.
 
-struct tr_matrix {
-  struct csr_matrix mat;
-  int *spvv8_len;    // per-task bulk length
-  int **tasks;       // array of int* (each task's row indices)
-  int *task_sizes;   // sizes for each task
-  int task_count;
-};
+/* `struct tr_matrix` is defined in `utility.h`; remove duplicate definition here. */
 
 // ...existing code...
 
 // apply_order: create a new csr matrix that contains rows in the order
 // specified by tasks (tasks is array of int* with sizes task_sizes)
-struct csr_matrix apply_order(struct csr_matrix *mat, int **tasks, int *task_sizes, int task_count, int copy_oob) {
+struct csr_matrix apply_order(struct csr_matrix *mat, int **tasks, int *task_sizes, int task_count) {
   struct csr_matrix ret;
   ret.m = mat->m;
   ret.rows = mat->rows;
   ret.cols = mat->cols;
-  ret.nnz = (double *)aligned_malloc64(mat->m * sizeof(double));
-  ret.col = (int *)aligned_malloc64(mat->m * sizeof(int));
-  ret.rowb = (int *)aligned_malloc64(mat->rows * sizeof(int));
-  ret.rowe = (int *)aligned_malloc64(mat->rows * sizeof(int));
-  if (copy_oob) {
-    ret.x = (double *)aligned_malloc64(mat->cols * sizeof(double));
-    ret.y = (double *)aligned_malloc64(mat->rows * sizeof(double));
-    ret.ans = (double *)aligned_malloc64(mat->rows * sizeof(double));
-  } else {
-    ret.x = ret.y = ret.ans = NULL;
-  }
-  ret.tstart = (int *)aligned_malloc64(task_count * sizeof(int));
-  ret.tend = (int *)aligned_malloc64(task_count * sizeof(int));
-
-  if (copy_oob) {
-    for (int i = 0; i < mat->cols; i++) ret.x[i] = mat->x[i];
-    for (int i = 0; i < mat->rows; i++) ret.y[i] = 0.0;
-    for (int i = 0; i < mat->rows; i++) ret.ans[i] = mat->ans[i];
-  }
+  ret.nnz = (double *)malloc(mat->m * sizeof(double));
+  ret.col = (int *)malloc(mat->m * sizeof(int));
+  ret.rowb = (int *)malloc(mat->rows * sizeof(int));
+  ret.rowe = (int *)malloc(mat->rows * sizeof(int));
+  ret.tstart = (int *)malloc(task_count * sizeof(int));
+  ret.tend = (int *)malloc(task_count * sizeof(int));
+  
 
   int npos = 0;
   int pos = 0;
@@ -82,36 +53,34 @@ struct csr_matrix apply_order(struct csr_matrix *mat, int **tasks, int *task_siz
   return ret;
 }
 
-void input_matrix(struct csr_matrix *mat) {
-  FILE *fp1 = fopen("nnz.txt", "r");
-  FILE *fp2 = fopen("col.txt", "r");
-  FILE *fp3 = fopen("rowb.txt", "r");
-  FILE *fp4 = fopen("rowe.txt", "r");
-  FILE *fp5 = fopen("x.txt", "r");
-  FILE *fp6 = fopen("ans.txt", "r");
+struct csr_matrix input_matrix(int m, int rows, int cols, double *nnz_arr, int *indices_arr, int *indptr_arr) {
+  struct csr_matrix mat;
 
-  if (!fp1 || !fp2 || !fp3 || !fp4 || !fp5 || !fp6) {
-    fprintf(stderr, "one or more input files missing\n");
-    exit(1);
+  /* initialize sizes in mat */
+  mat.m = m;
+  mat.rows = rows;
+  mat.cols = cols;
+
+  mat.nnz = (double *)malloc(mat.m * sizeof(double));
+  mat.col = (int *)malloc(mat.m * sizeof(int));
+  mat.rowb = (int *)malloc(mat.rows * sizeof(int));
+  mat.rowe = (int *)malloc(mat.rows * sizeof(int));
+  mat.tstart = NULL;
+  mat.tend = NULL;
+
+  /* copy nnz and indices */
+  for (int i = 0; i < mat.m; i++) mat.nnz[i] = nnz_arr[i];
+  for (int i = 0; i < mat.m; i++) mat.col[i] = indices_arr[i];
+
+  /* copy indptr -> rowb/rowe */
+  for (int r = 0; r < mat.rows; r++) {
+    mat.rowb[r] = indptr_arr[r];
+    mat.rowe[r] = indptr_arr[r+1];
   }
 
-  mat->nnz = (double *)aligned_malloc64(mat->m * sizeof(double));
-  mat->col = (int *)aligned_malloc64(mat->m * sizeof(int));
-  mat->rowb = (int *)aligned_malloc64(mat->rows * sizeof(int));
-  mat->rowe = (int *)aligned_malloc64(mat->rows * sizeof(int));
-  mat->x = (double *)aligned_malloc64(mat->cols * sizeof(double));
-  mat->y = (double *)aligned_malloc64(mat->rows * sizeof(double));
-  mat->ans = (double *)aligned_malloc64(mat->rows * sizeof(double));
+  /* ans removed; caller no longer stores expected answers in matrix */
 
-  for (int i = 0; i < mat->m; i++) fscanf(fp1, "%lf", &mat->nnz[i]);
-  for (int i = 0; i < mat->m; i++) fscanf(fp2, "%d", &mat->col[i]);
-  for (int i = 0; i < mat->rows; i++) fscanf(fp3, "%d", &mat->rowb[i]);
-  for (int i = 0; i < mat->rows; i++) fscanf(fp4, "%d", &mat->rowe[i]);
-  for (int i = 0; i < mat->cols; i++) fscanf(fp5, "%lf", &mat->x[i]);
-  for (int i = 0; i < mat->rows; i++) mat->y[i] = 0.0;
-  for (int i = 0; i < mat->rows; i++) fscanf(fp6, "%lf", &mat->ans[i]);
-
-  fclose(fp1); fclose(fp2); fclose(fp3); fclose(fp4); fclose(fp5); fclose(fp6);
+  return mat;
 }
 
 void destroy_matrix(struct csr_matrix *mat) {
@@ -119,23 +88,9 @@ void destroy_matrix(struct csr_matrix *mat) {
   if (mat->col) free(mat->col);
   if (mat->rowb) free(mat->rowb);
   if (mat->rowe) free(mat->rowe);
-  if (mat->x) free(mat->x);
-  if (mat->y) free(mat->y);
-  if (mat->ans) free(mat->ans);
-}
-
-int check_answer(struct csr_matrix *mat) {
-  int bad_count = 0;
-  for (int i = 0; i < mat->rows; i++) {
-    double yi = mat->y[i];
-    double ansi = mat->ans[i];
-    if (fabs(yi - ansi) > 0.01 * fabs(ansi) && !(fabs(yi) <= 1e-5 && fabs(ansi) <= 1e-5)) {
-      if (bad_count < 10) fprintf(stderr, "y[%d] expected %lf got %lf\n", i, mat->ans[i], mat->y[i]);
-      bad_count++;
-    }
-  }
-  if (bad_count) fprintf(stderr, "bad_count: %d\n", bad_count);
-  return bad_count == 0 ? 1 : 0;
+  if (mat->tstart) free(mat->tstart);
+  if (mat->tend) free(mat->tend);
+  /* ans removed; nothing to free here */
 }
 
 // Reorder and group rows similar to original C++ implementation.
@@ -208,7 +163,7 @@ struct tr_matrix tr_reorder(struct csr_matrix *mat, int **tasks, int *task_sizes
   }
 
   // apply ordering to matrix
-  tr.mat = apply_order(mat, tr.tasks, tr.task_sizes, task_count, 1);
+  tr.mat = apply_order(mat, tr.tasks, tr.task_sizes, task_count);
 
   return tr;
 }
@@ -228,21 +183,29 @@ int is_banded(struct csr_matrix *mat, int band_size) {
   return 0;
 }
 
-struct tr_matrix process(struct csr_matrix *mat, int panel_num) {
+struct tr_matrix process(struct csr_matrix *mat) {
   // allocate tasks
-  int panel = panel_num;
+  int banded = is_banded(mat, -1);
+  int panel_count = mat->rows / 2000;
+  if (panel_count < 4) panel_count = 4;
+  if (banded) {
+    panel_count = mat->rows / 10000;
+    if (panel_count < 4) panel_count = 4;
+  }
+  int panel = panel_count;
   int **tasks = (int **)malloc(panel * sizeof(int*));
   int *task_sizes = (int *)calloc(panel, sizeof(int));
   int *task_caps = (int *)malloc(panel * sizeof(int));
   for (int i = 0; i < panel; i++) { task_caps[i] = 128; tasks[i] = (int *)malloc(task_caps[i] * sizeof(int)); }
 
   int pos = 0;
-  int len = mat->m / panel_num;
+  int len = mat->m / panel_count;
   int limit = mat->rows - 7;
   int i;
   int count = 0;
   for (i = 0; i < limit; i += 8) {
     for (int j = 0; j < 8; j++) {
+      if (i+j >= mat->rows) break;
       int rowlen = mat->rowe[i + j] - mat->rowb[i + j];
       if (rowlen > 0) {
         if (task_sizes[pos] + 1 > task_caps[pos]) {
@@ -342,7 +305,7 @@ always_inline void avx512_spvv8_kernel_tr(const int *rows, int *rowb, int *rowe,
   _mm512_i32scatter_pd(y, rs, acc, 8);
 }
 
-void spmv_tr_spvv8_kernel(struct tr_matrix *tr) {
+void spmv_tr_spvv8_kernel(struct tr_matrix *tr, double *x, double *y) {
   int size = tr->task_count;
   for (int tid = 0; tid < size; tid++) {
     int *task = tr->tasks[tid];
@@ -352,78 +315,18 @@ void spmv_tr_spvv8_kernel(struct tr_matrix *tr) {
     int limit = tr->spvv8_len[tid];
     int p, c;
     for (p = start, c = 0; c < limit; p += 8, c += 8) {
-      avx512_spvv8_kernel_tr(task + c, mat->rowb + p, mat->rowe + p, mat->col, mat->nnz, mat->x, mat->y);
+      avx512_spvv8_kernel_tr(task + c, mat->rowb + p, mat->rowe + p, mat->col, mat->nnz, x, y);
     }
     for (; p < end; p++) {
       int r = task[p - start];
       int begin = mat->rowb[p];
       int en = mat->rowe[p];
       int rowlen = en - begin;
-      _mm_prefetch(mat->y + r, _MM_HINT_ET1);
-      mat->y[r] = avx512_fma_spvv_kernel(mat->col + begin, mat->nnz + begin, rowlen, mat->x);
+      _mm_prefetch(y + r, _MM_HINT_ET1);
+      y[r] = avx512_fma_spvv_kernel(mat->col + begin, mat->nnz + begin, rowlen, x);
     }
   }
 }
 
-int main() {
-  struct csr_matrix mat;
-
-  if (access("info.txt", F_OK) != -1) {
-    FILE *info = fopen("info.txt", "r");
-    fscanf(info, "%d", &mat.m);
-    fscanf(info, "%d", &mat.rows);
-    fscanf(info, "%d", &mat.cols);
-    fclose(info);
-  } else {
-    fprintf(stderr, "info.txt not found\n");
-    return -1;
-  }
-
-  input_matrix(&mat);
-
-  int banded = is_banded(&mat, -1);
-  int panel_count = mat.rows / 2000;
-  if (panel_count < 4) panel_count = 4;
-  if (banded) {
-    panel_count = mat.rows / 10000;
-    if (panel_count < 4) panel_count = 4;
-  }
-
-  struct tr_matrix tr = process(&mat, panel_count);
-
-  // Warm-up
-  for (int it = 0; it < 300; it++) {
-    for (int i = 0; i < tr.mat.rows; i++) tr.mat.y[i] = 0.0;
-    spmv_tr_spvv8_kernel(&tr);
-  }
-
-  struct timespec t1, t2;
-  double times[100];
-  for (int i = 0; i < 100; i++) {
-    for (int j = 0; j < tr.mat.rows; j++) tr.mat.y[j] = 0.0;
-  clock_gettime(CLOCK_MONOTONIC, &t1);
-  spmv_tr_spvv8_kernel(&tr);
-  clock_gettime(CLOCK_MONOTONIC, &t2);
-    times[i] = (t2.tv_sec - t1.tv_sec) * 1e9 + (t2.tv_nsec - t1.tv_nsec);
-  }
-  // median
-  for (int i = 0; i < 99; i++) {
-    for (int j = i+1; j < 100; j++) {
-      if (times[j] < times[i]) { double tmp = times[i]; times[i] = times[j]; times[j] = tmp; }
-    }
-  }
-  printf("Time: %.2f ns\n", times[50]);
-
-  for (int i = 0; i < tr.mat.rows; i++) tr.mat.y[i] = 0.0;
-  spmv_tr_spvv8_kernel(&tr);
-
-  int correct = check_answer(&tr.mat);
-  printf("Correct: %s\n", correct ? "true" : "false");
-
-  destroy_matrix(&mat);
-  // Free tr resources
-  for (int t = 0; t < tr.task_count; t++) free(tr.tasks[t]);
-  free(tr.tasks); free(tr.task_sizes); free(tr.spvv8_len);
-  destroy_matrix(&tr.mat);
-  return 0;
-}
+/* `main` moved to `src/spmv_spv8_main.c` so this compilation unit can be
+   built into an object that does not define `main`. */

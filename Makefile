@@ -1,31 +1,25 @@
 # Compilers
 CC = gcc
-CXX = g++
-CC = gcc
-# Flags
-# - Debug
-# CXXFLAGS += -g
-# CXXFLAGS += -fsanitize=address # Check invalid memory access
-# - General
-CXXFLAGS += -O3 # Should be disabled when debug
-CXXFLAGS += -std=c++17 -Wall -Wextra
-CXXFLAGS += -march=native
+
 CFLAGS += -O3 -Wall -Wextra -march=native
-#CXXFLAGS += -static
 
 LDFLAGS  += -lm
 
 VPATH = src
+
+OBJ = bin/spmv_spv8.o
+MAIN_OBJ = bin/spmv_spv8_main.o
 
 all: bin bin/spmv_spv8
 
 bin:
 	mkdir -p bin
 
-bin/spmv_spv8 : spmv_spv8.c
-	$(CC) $(CFLAGS) $< -o $@ $(LDFLAGS)
+bin/spmv_spv8: $(OBJ) $(MAIN_OBJ)
+	$(CC) $(CFLAGS) $(OBJ) $(MAIN_OBJ) -o $@ $(LDFLAGS)
 
-
+bin/%.o: src/%.c | bin
+	$(CC) $(CFLAGS) -c $< -o $@
 
 .PHONY : clean
 clean :
