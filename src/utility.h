@@ -3,6 +3,10 @@
 #include <stdlib.h>
 #include <math.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #define always_inline __inline__ __attribute__((always_inline))
 #define likely(x) __builtin_expect(!!(x), 1)
 #define unlikely(x) __builtin_expect(!!(x), 0)
@@ -37,3 +41,7 @@ struct tr_matrix process(struct csr_matrix *mat);
 
 /* SpMV kernel that consumes a TR matrix and performs y += A*x. */
 void spmv_tr_spvv8_kernel(struct tr_matrix *tr, double *x, double *y);
+
+#ifdef __cplusplus
+}
+#endif
