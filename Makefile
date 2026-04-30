@@ -1,7 +1,7 @@
 # Compilers
 CC = gcc
 
-CFLAGS += -O3 -Wall -Wextra -march=native
+CFLAGS += -O3 -Wall -Wextra -mavx512f -mavx512vl -mfma -mprfchw
 
 LDFLAGS  += -lm
 
