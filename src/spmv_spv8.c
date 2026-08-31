@@ -165,6 +165,30 @@ struct tr_matrix tr_reorder(struct csr_matrix *mat, int **tasks, int *task_sizes
   // apply ordering to matrix
   tr.mat = apply_order(mat, tr.tasks, tr.task_sizes, task_count);
 
+  /* Interleave each bulk group of 8 same-length rows: element c of all
+     8 rows becomes 8 consecutive entries at base + c*8, the layout
+     avx512_spvv8_kernel_tr loads with a single vector load. */
+  for (int t = 0; t < task_count; t++) {
+    int start = tr.mat.tstart[t];
+    int tr_len = tr.spvv8_len[t];
+    for (int p = start, c = 0; c < tr_len; c += 8, p += 8) {
+      int rowlen = tr.mat.rowe[p] - tr.mat.rowb[p];
+      int base = tr.mat.rowb[p];
+      double *nnz_tmp = (double *)malloc(rowlen * 8 * sizeof(double));
+      int *col_tmp = (int *)malloc(rowlen * 8 * sizeof(int));
+      memcpy(nnz_tmp, tr.mat.nnz + base, rowlen * 8 * sizeof(double));
+      memcpy(col_tmp, tr.mat.col + base, rowlen * 8 * sizeof(int));
+      for (int l = 0; l < rowlen; l++) {
+        for (int r = 0; r < 8; r++) {
+          tr.mat.nnz[base + l * 8 + r] = nnz_tmp[r * rowlen + l];
+          tr.mat.col[base + l * 8 + r] = col_tmp[r * rowlen + l];
+        }
+      }
+      free(nnz_tmp);
+      free(col_tmp);
+    }
+  }
+
   return tr;
 }
 
